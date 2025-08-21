@@ -48,7 +48,7 @@ const MECHS = [
 const SKILLS = [
   { id: "skill01", src: "/img/skills/skill01.png", label: "[赤霄]四角バリア" },
   { id: "skill02", src: "/img/skills/skill02.png", label: "[赤霄]腹バリア" },
-  { id: "skill03", src: "/img/skills/skill03.png", label: "[赤霄フラッシュ" },
+  { id: "skill03", src: "/img/skills/skill03.png", label: "[赤霄]フラッシュ" },
   { id: "skill04", src: "/img/skills/skill04.png", label: "[ハリ]デコイシールド" },
   { id: "skill05", src: "/img/skills/skill05.png", label: "[ハリ]バリア" },
   { id: "skill06", src: "/img/skills/skill06.png", label: "[ハリ]ビーム" },
