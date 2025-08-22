@@ -44,7 +44,7 @@ const MECHS = [
   { id: "mech15", src: "/img/mechs/mech15.png", label: "セレニース" },
 ];
 
-// スキル（18種）
+// スキル（24種）
 const SKILLS = [
   { id: "skill01", src: "/img/skills/skill01.png", label: "[赤霄]四角バリア" },
   { id: "skill02", src: "/img/skills/skill02.png", label: "[赤霄]腹バリア" },
@@ -64,9 +64,15 @@ const SKILLS = [
   { id: "skill16", src: "/img/skills/skill16.png", label: "[セレ]ロック阻害" },
   { id: "skill17", src: "/img/skills/skill17.png", label: "[セレ]ワイヤー" },
   { id: "skill18", src: "/img/skills/skill18.png", label: "[ファルコン]レーダー" },
+  { id: "skill19", src: "/img/skills/skill19.png", label: "[ファルコン]ヘビミサ" },
+  { id: "skill20", src: "/img/skills/skill20.png", label: "[セラ]榴弾砲" },
+  { id: "skill21", src: "/img/skills/skill21.png", label: "[セラ]ヒールドローン" },
+  { id: "skill22", src: "/img/skills/skill22.png", label: "[鳴神]ステルス付与" },
+  { id: "skill23", src: "/img/skills/skill23.png", label: "[飛景]ソードビット" },
+  { id: "skill24", src: "/img/skills/skill24.png", label: "[飛景]ワイヤー" },
 ];
 
-// その他（11種）
+// その他（12種）
 const OTHERS = [
   { id: "other01", src: "/img/others/other01.png", label: "A1" },
   { id: "other02", src: "/img/others/other02.png", label: "A2" },
@@ -78,7 +84,8 @@ const OTHERS = [
   { id: "other08", src: "/img/others/other08.png", label: "C2" },
   { id: "other09", src: "/img/others/other09.png", label: "C3" },
   { id: "other10", src: "/img/others/other10.png", label: "回復ドローン" },
-  { id: "other11", src: "/img/others/other11.png", label: "EIC結晶" },
+  { id: "other11", src: "/img/others/other11.png", label: "結晶1" },
+  { id: "other11", src: "/img/others/other11.png", label: "結晶2" },
 ];
 
 const MAX_PER_SIDE = 6;
