@@ -85,7 +85,7 @@ const OTHERS = [
   { id: "other09", src: "/img/others/other09.png", label: "C3" },
   { id: "other10", src: "/img/others/other10.png", label: "回復ドローン" },
   { id: "other11", src: "/img/others/other11.png", label: "結晶1" },
-  { id: "other12", src: "/img/others/other11.png", label: "結晶2" },
+  { id: "other12", src: "/img/others/other12.png", label: "結晶2" },
 ];
 
 const MAX_PER_SIDE = 6;
