@@ -1,5 +1,5 @@
 // App.jsx
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -89,9 +89,18 @@ const OTHERS = [
 ];
 
 const MAX_PER_SIDE = 6;
-const UNIT_SIZE = 48; // メカの配置基準サイズ
-const OBJ_SIZE = 48;  // オブジェクト（スキル/その他）のサイズ
+const UNIT_SIZE = 48;
+const OBJ_SIZE = 48;
 const DEFAULT_VISION_SPREAD = 60;
+
+// 個別スケール
+const SCALE_MIN = 0.5;
+const SCALE_MAX = 2.5;
+const SCALE_STEP = 0.1;
+
+// ビュー（ズーム・パン）
+const VIEW_SCALE_MIN = 0.5;
+const VIEW_SCALE_MAX = 3.0;
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 const dist2 = (x1, y1, x2, y2) => {
@@ -118,16 +127,13 @@ export default function App() {
   );
 
   // タブ（右側）
-  const [activeTab, setActiveTab] = useState("mech"); // "mech" | "skill" | "other"
+  const [activeTab, setActiveTab] = useState("mech");
 
-  // メカ
+  // メカ配置
   const [mode, setMode] = useState("ally"); // 'ally' | 'enemy'
-  const [units, setUnits] = useState({ ally: [], enemy: [] }); // {id,src,label,side,x,y}[]
-  const allyCount = units.ally.length;
-  const enemyCount = units.enemy.length;
+  const [units, setUnits] = useState({ ally: [], enemy: [] });
 
-  // オブジェクト（スキル/その他 共通）
-  // {id, kind:"skill"|"other", src, label, x, y}
+  // オブジェクト
   const [objects, setObjects] = useState([]);
 
   const [dragPreview, setDragPreview] = useState(null);
@@ -141,6 +147,94 @@ export default function App() {
     setUnits({ ally: [], enemy: [] });
     setObjects([]);
     clearAnnotations();
+    setView({ scale: 1, x: 0, y: 0 });
+  };
+
+  /* ================= ビュー（ズーム・パン） ================ */
+  const [view, setView] = useState({ scale: 1, x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef({ x: 0, y: 0 });
+  const viewStartRef = useRef({ x: 0, y: 0 });
+  const [spaceDown, setSpaceDown] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.code === "Space") { setSpaceDown(true); e.preventDefault(); }
+    };
+    const onKeyUp = (e) => {
+      if (e.code === "Space") setSpaceDown(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, []);
+
+  // ✅ パディング考慮でズーム中心がズレない版
+  const wheelZoom = (e) => {
+    if (!mapRef.current) return;
+
+    e.preventDefault();
+    const el = mapRef.current;
+    const rect = el.getBoundingClientRect();
+    const cs = window.getComputedStyle(el);
+    const padL = parseFloat(cs.paddingLeft)  || 0;
+    const padT = parseFloat(cs.paddingTop)   || 0;
+
+    // コンテンツ領域内のマウス座標
+    const mx = e.clientX - rect.left - padL;
+    const my = e.clientY - rect.top  - padT;
+
+    const oldScale = view.scale;
+    const zoomFactor = e.deltaY < 0 ? 1.1 : 1 / 1.1; // 上で拡大、下で縮小
+    const newScale = clamp(oldScale * zoomFactor, VIEW_SCALE_MIN, VIEW_SCALE_MAX);
+    if (newScale === oldScale) return;
+
+    // マウス位置を基準にズーム（その点が動かないようにオフセット調整）
+    const cx = (mx - view.x) / oldScale; // コンテンツ座標
+    const cy = (my - view.y) / oldScale;
+
+    const nx = mx - cx * newScale;
+    const ny = my - cy * newScale;
+
+    setView({ scale: newScale, x: nx, y: ny });
+  };
+
+  const beginPan = (clientX, clientY) => {
+    panStartRef.current = { x: clientX, y: clientY };
+    viewStartRef.current = { x: view.x, y: view.y };
+    setIsPanning(true);
+  };
+  const doPan = (clientX, clientY) => {
+    const dx = clientX - panStartRef.current.x;
+    const dy = clientY - panStartRef.current.y;
+    setView((v) => ({ ...v, x: viewStartRef.current.x + dx, y: viewStartRef.current.y + dy }));
+  };
+  const endPan = () => setIsPanning(false);
+
+  // 画面座標(client) -> コンテンツ座標（ズーム・パンを逆変換）
+  const toContentCoordsFromClient = (clientX, clientY) => {
+    const el = mapRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    const cs = window.getComputedStyle(el);
+    const padL = parseFloat(cs.paddingLeft)  || 0;
+    const padT = parseFloat(cs.paddingTop)   || 0;
+    const padR = parseFloat(cs.paddingRight) || 0;
+    const padB = parseFloat(cs.paddingBottom)|| 0;
+
+    const contentW = rect.width  - padL - padR;
+    const contentH = rect.height - padT - padB;
+
+    const stageX = clientX - rect.left - padL; // コンテンツ領域基準
+    const stageY = clientY - rect.top  - padT;
+
+    return {
+      x: clamp((stageX - view.x) / view.scale, 0, contentW),
+      y: clamp((stageY - view.y) / view.scale, 0, contentH),
+    };
   };
 
   /* ================= 注釈（アノテーション） ================ */
@@ -176,7 +270,7 @@ export default function App() {
   const pushHistory = (kind) => annotationStack.current.push(kind);
   const undo = () => {
     const last = annotationStack.current.pop();
-       if (!last) return;
+    if (!last) return;
     if (last === "line") setLines((arr) => arr.slice(0, -1));
     if (last === "cone") setCones((arr) => arr.slice(0, -1));
     if (last === "stroke") setStrokes((arr) => arr.slice(0, -1));
@@ -188,16 +282,31 @@ export default function App() {
   };
 
   const toMapCoords = (clientX, clientY) => {
-    const rect = mapRef.current?.getBoundingClientRect();
-    if (!rect) return null;
+    const pt = toContentCoordsFromClient(clientX, clientY);
+    if (!pt) return null;
+    const el = mapRef.current;
+    const rect = el?.getBoundingClientRect();
+    const cs = el ? window.getComputedStyle(el) : null;
+    const padL = cs ? (parseFloat(cs.paddingLeft)  || 0) : 0;
+    const padT = cs ? (parseFloat(cs.paddingTop)   || 0) : 0;
+    const padR = cs ? (parseFloat(cs.paddingRight) || 0) : 0;
+    const padB = cs ? (parseFloat(cs.paddingBottom)|| 0) : 0;
+    const contentW = (rect?.width || 0)  - padL - padR;
+    const contentH = (rect?.height || 0) - padT - padB;
     return {
-      x: clamp(clientX - rect.left, 0, rect.width),
-      y: clamp(clientY - rect.top, 0, rect.height),
+      x: clamp(pt.x, 0, contentW),
+      y: clamp(pt.y, 0, contentH),
     };
   };
 
   /* ====== 注釈ツール：描画/編集 ====== */
   const onMapMouseDown = (e) => {
+    // 中クリック or Space+左ドラッグ でパン
+    if (e.button === 1 || (spaceDown && e.button === 0)) {
+      beginPan(e.clientX, e.clientY);
+      return;
+    }
+
     if (e.button !== 0) return;
     const pt = toMapCoords(e.clientX, e.clientY);
     if (!pt) return;
@@ -234,12 +343,18 @@ export default function App() {
   };
 
   const onMapMouseMove = (e) => {
+    if (isPanning) {
+      doPan(e.clientX, e.clientY);
+      return;
+    }
+
     const pt = toMapCoords(e.clientX, e.clientY);
     if (!pt) return;
 
     if (tool === Tool.Select && isDrawing && selected) {
-      const dx = e.movementX;
-      const dy = e.movementY;
+      // movementX/Y は画面ピクセル。コンテンツ座標の移動量に変換
+      const dx = e.movementX / view.scale;
+      const dy = e.movementY / view.scale;
 
       if (dragMode === "move") {
         if (selected.kind === "line") {
@@ -274,6 +389,8 @@ export default function App() {
   };
 
   const onMapMouseUp = () => {
+    if (isPanning) { endPan(); return; }
+
     const pt = cursor;
     if (tool === Tool.Select) {
       setIsDrawing(false);
@@ -324,7 +441,7 @@ export default function App() {
     }
   };
 
-  const dndLocked = isDrawing && tool !== Tool.Select;
+  const dndLocked = (isDrawing && tool !== Tool.Select) || isPanning;
 
   /* ============== DnD Context（ユニット+オブジェクト用） ============== */
   return (
@@ -374,7 +491,8 @@ export default function App() {
             deleteUnit(data.id, data.side);
             return;
           }
-          moveUnitTo(data.id, data.side, data.x + delta.x, data.y + delta.y);
+          // delta は画面座標。コンテンツ座標へ変換
+          moveUnitTo(data.id, data.side, data.x + delta.x / view.scale, data.y + delta.y / view.scale);
           return;
         }
         if (data.type === "obj") {
@@ -382,7 +500,7 @@ export default function App() {
             deleteObject(data.id);
             return;
           }
-          moveObjectTo(data.id, data.x + delta.x, data.y + delta.y);
+          moveObjectTo(data.id, data.x + delta.x / view.scale, data.y + delta.y / view.scale);
           return;
         }
       }}
@@ -405,15 +523,13 @@ export default function App() {
           ))}
         </aside>
 
-        {/* ------------ 中央：マップ（ツールバー＋注釈SVG＋配置要素） ------------ */}
+        {/* ------------ 中央：マップ（ツールバー＋注釈＋配置要素） ------------ */}
         <section className="flex-1 min-w-[420px] min-h-[420px] rounded-xl border border-white/10 relative overflow-hidden bg-[#1e2328] shadow-inner">
           {/* Toolbar */}
           <div className="absolute top-0 left-0 right-0 z-40 h-12 px-3 md:px-4 flex items-center justify-between gap-2 bg-black/35 backdrop-blur-sm border-b border-white/10">
             <div className="flex items-center gap-3">
               <span className="text-xs uppercase tracking-wider text-white/70">Current Map</span>
               <strong className="text-sm">{currentMap.label}</strong>
-              <CountBadge label="味方" count={allyCount} max={MAX_PER_SIDE} color="blue" />
-              <CountBadge label="敵" count={enemyCount} max={MAX_PER_SIDE} color="red" />
             </div>
 
             <div className="flex items-center gap-2">
@@ -438,10 +554,6 @@ export default function App() {
                 線色
                 <input type="color" value={rgbaToHex(lineColorByMode)} disabled className="w-6 h-6 rounded border border-white/20 bg-transparent opacity-60 cursor-not-allowed" />
               </label>
-              <label className="flex items-center gap-1 text-[11px]">
-                視界色
-                <input type="color" value={rgbaToHex(coneColorByMode)} disabled className="w-6 h-6 rounded border border-white/20 bg-transparent opacity-60 cursor-not-allowed" />
-              </label>
               <label className="hidden md:flex items-center gap-1 text-[11px] w-[160px]">
                 角度
                 <input
@@ -459,109 +571,150 @@ export default function App() {
           </div>
 
           {/* Map Stage */}
-          <MapStage ref={mapRef} map={currentMap} onContextMenu={handleContextMenu}>
-            {/* 注釈レイヤ */}
-            <svg
-              className="absolute inset-0 z-10 w-full h-full"
-              style={{ touchAction: "none" }}
-              width="100%"
-              height="100%"
-              onMouseDown={onMapMouseDown}
-              onMouseMove={onMapMouseMove}
-              onMouseUp={onMapMouseUp}
-              onContextMenu={handleContextMenu}
+          <MapStage
+            ref={mapRef}
+            map={currentMap}
+            onWheel={wheelZoom}
+            onMouseDown={onMapMouseDown}
+            onMouseMove={onMapMouseMove}
+            onMouseUp={onMapMouseUp}
+            onContextMenu={handleContextMenu}
+            view={view}
+          >
+            {/* ゴミ箱：画面右下に固定（ビューと一緒に動かない） */}
+            <div className="absolute bottom-3 right-3 z-50">
+              <TrashBin />
+            </div>
+
+            {/* ここから下はビューワ内（ズーム・パンの対象） */}
+            <div
+              className="absolute inset-0 z-0"
+              style={{
+                transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+                transformOrigin: "0 0",
+                width: "100%",
+                height: "100%",
+              }}
             >
-              {/* 既存線 */}
-              {lines.map((ln, i) => {
-                const sel = selected && selected.kind==="line" && selected.index===i;
-                return (
-                  <g key={`ln-${i}`}>
-                    <line x1={ln.x1} y1={ln.y1} x2={ln.x2} y2={ln.y2}
-                      stroke={ln.color} strokeWidth="3" strokeLinecap="round" opacity="0.95" />
-                    {sel && (
-                      <>
-                        <circle cx={(ln.x1+ln.x2)/2} cy={(ln.y1+ln.y2)/2} r="6" fill="white" opacity="0.9" />
-                        <circle cx={ln.x1} cy={ln.y1} r="4" fill="white" opacity="0.6" />
-                        <circle cx={ln.x2} cy={ln.y2} r="4" fill="white" opacity="0.6" />
-                      </>
-                    )}
-                  </g>
-                );
-              })}
+              {/* 実マップ画像（背景として） */}
+              <img
+                src={currentMap.full}
+                alt={currentMap.label}
+                className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none"
+                draggable={false}
+              />
 
-              {/* 線プレビュー */}
-              {isDrawing && tool===Tool.Line && startPt && cursor && (
-                <line
-                  x1={startPt.x}
-                  y1={startPt.y}
-                  x2={cursor.x}
-                  y2={cursor.y}
-                  stroke={mode === "ally" ? "rgba(56,189,248,0.7)" : "rgba(248,113,113,0.7)"}
-                  strokeWidth="2"
-                  strokeDasharray="6 6"
-                />
-              )}
+              {/* 注釈レイヤ（SVG） */}
+              <svg
+                className="absolute inset-0 z-10 w-full h-full"
+                style={{ touchAction: "none" }}
+                width="100%"
+                height="100%"
+              >
+                {/* 既存線 */}
+                {lines.map((ln, i) => {
+                  const sel = selected && selected.kind==="line" && selected.index===i;
+                  return (
+                    <g key={`ln-${i}`}>
+                      <line x1={ln.x1} y1={ln.y1} x2={ln.x2} y2={ln.y2}
+                        stroke={ln.color} strokeWidth="3" strokeLinecap="round" opacity="0.95" />
+                      {sel && (
+                        <>
+                          <circle cx={(ln.x1+ln.x2)/2} cy={(ln.y1+ln.y2)/2} r="6" fill="white" opacity="0.9" />
+                          <circle cx={ln.x1} cy={ln.y1} r="4" fill="white" opacity="0.6" />
+                          <circle cx={ln.x2} cy={ln.y2} r="4" fill="white" opacity="0.6" />
+                        </>
+                      )}
+                    </g>
+                  );
+                })}
 
-              {/* 視界（扇形） */}
-              {cones.map((c, i) => {
-                const sel = selected && selected.kind==="cone" && selected.index===i;
-                const stroke = hexOrRgbaStroke(c.color ?? coneColorByMode);
-                const fill = coneFillFromStroke(stroke);
-                const handle = coneHandlePoint(c);
-                return (
-                  <g key={`cone-${i}`}>
-                    <path d={conePath(c)} fill={fill} stroke={stroke} strokeWidth={sel?3:2} />
-                    <circle cx={handle.x} cy={handle.y} r="7" fill="white" opacity={sel?0.95:0.75} />
-                    {sel && <circle cx={c.x} cy={c.y} r="5" fill="white" opacity="0.9" />}
-                  </g>
-                );
-              })}
+                {/* 線プレビュー */}
+                {isDrawing && tool===Tool.Line && startPt && cursor && (
+                  <line
+                    x1={startPt.x}
+                    y1={startPt.y}
+                    x2={cursor.x}
+                    y2={cursor.y}
+                    stroke={mode === "ally" ? "rgba(56,189,248,0.7)" : "rgba(248,113,113,0.7)"}
+                    strokeWidth="2"
+                    strokeDasharray="6 6"
+                  />
+                )}
 
-              {/* 視界プレビュー */}
-              {isDrawing && tool===Tool.Cone && startPt && cursor && (
-                <path
-                  d={conePath({
-                    x:startPt.x, y:startPt.y,
-                    angle:Math.atan2(cursor.y-startPt.y, cursor.x-startPt.x),
-                    length:Math.hypot(cursor.x-startPt.x, cursor.y-startPt.y),
-                    spread: settings.visionSpread
-                  })}
-                  fill={coneFillFromStroke(coneColorByMode)}
-                  stroke={coneColorByMode}
-                  strokeWidth="1.5"
-                  strokeDasharray="6 6"
-                  opacity="0.9"
-                />
-              )}
+                {/* 視界（扇形） */}
+                {cones.map((c, i) => {
+                  const sel = selected && selected.kind==="cone" && selected.index===i;
+                  const stroke = hexOrRgbaStroke(c.color ?? coneColorByMode);
+                  const fill = coneFillFromStroke(stroke);
+                  const handle = coneHandlePoint(c);
+                  return (
+                    <g key={`cone-${i}`}>
+                      <path d={conePath(c)} fill={fill} stroke={stroke} strokeWidth={sel?3:2} />
+                      <circle cx={handle.x} cy={handle.y} r="7" fill="white" opacity={sel?0.95:0.75} />
+                      {sel && <circle cx={c.x} cy={c.y} r="5" fill="white" opacity="0.9" />}
+                    </g>
+                  );
+                })}
 
-              {/* ペイント */}
-              {strokes.map((s, i) => {
-                const sel = selected && selected.kind==="stroke" && selected.index===i;
-                return (
-                  <polyline key={`st-${i}`} points={s.points.map(p=>`${p.x},${p.y}`).join(" ")}
-                    fill="none" stroke={s.color ?? settings.paintColor} strokeWidth={sel?3.5:2.5} strokeLinecap="round" strokeLinejoin="round" />
-                );
-              })}
-            </svg>
+                {/* 視界プレビュー */}
+                {isDrawing && tool===Tool.Cone && startPt && cursor && (
+                  <path
+                    d={conePath({
+                      x:startPt.x, y:startPt.y,
+                      angle:Math.atan2(cursor.y-startPt.y, cursor.x-startPt.x),
+                      length:Math.hypot(cursor.x-startPt.x, cursor.y-startPt.y),
+                      spread: settings.visionSpread
+                    })}
+                    fill={coneFillFromStroke(coneColorByMode)}
+                    stroke={coneColorByMode}
+                    strokeWidth="1.5"
+                    strokeDasharray="6 6"
+                    opacity="0.9"
+                  />
+                )}
 
-            {/* DnD 受け口（マップ） */}
-            <Droppable id="map" className="absolute inset-0 z-0 pointer-events-none" />
+                {/* ペイント */}
+                {strokes.map((s, i) => {
+                  const sel = selected && selected.kind==="stroke" && selected.index===i;
+                  return (
+                    <polyline key={`st-${i}`} points={s.points.map(p=>`${p.x},${p.y}`).join(" ")}
+                      fill="none" stroke={s.color ?? settings.paintColor} strokeWidth={sel?3.5:2.5} strokeLinecap="round" strokeLinejoin="round" />
+                  );
+                })}
+              </svg>
 
-            {/* ユニット（メカ） */}
-            <div className="pointer-events-auto">
-              {["ally", "enemy"].flatMap((side) =>
-                units[side].map((u) => <MapUnit key={`${side}-${u.id}`} unit={u} dndLocked={dndLocked} />)
-              )}
+              {/* DnD 受け口（マップ、ビュー内に配置） */}
+              <Droppable id="map" className="absolute inset-0 z-0 pointer-events-none" />
+
+              {/* ユニット（メカ） */}
+              <div className="pointer-events-auto absolute inset-0">
+                {["ally", "enemy"].flatMap((side) =>
+                  units[side].map((u) => (
+                    <MapUnit
+                      key={`${side}-${u.id}`}
+                      unit={u}
+                      dndLocked={dndLocked}
+                      onScale={(delta) => scaleUnit(u.id, u.side, delta)}
+                    />
+                  ))
+                )}
+              </div>
+
+              {/* オブジェクト（スキル/その他） */}
+              <div className="pointer-events-auto absolute inset-0">
+                {objects.map((o) => (
+                  <MapObject
+                    key={o.id}
+                    obj={o}
+                    dndLocked={dndLocked} // ✅ 描画/パン中はドラッグ無効
+                    onScale={(delta) => scaleObject(o.id, delta)}
+                  />
+                ))}
+              </div>
             </div>
 
-            {/* オブジェクト（スキル/その他） */}
-            <div className="pointer-events-auto">
-              {objects.map((o) => (
-                <MapObject key={o.id} obj={o} />
-              ))}
-            </div>
-
-            {/* DnDプレビュー */}
+            {/* DnDプレビュー（固定） */}
             <DragOverlay>
               {dragPreview ? (
                 <img
@@ -574,11 +727,11 @@ export default function App() {
           </MapStage>
         </section>
 
-        {/* ------------ 右：パレット（タブ切り替え） + ゴミ箱 ------------ */}
+        {/* ------------ 右：パレット（タブ切り替え） ------------ */}
         <aside className="w-[360px] bg-gradient-to-b from-[#202428] to-[#14161a] rounded-xl p-4 flex flex-col shadow-[0_10px_40px_rgba(0,0,0,0.55)]">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-amber-300/90 text-[15px] font-semibold tracking-wide">Palette</h3>
-            {/* 味方/敵 切替はメカのみ意味があるので常に表示（配置時に参照） */}
+            {/* 味方/敵 切替 */}
             <div className="flex gap-1">
               <button
                 className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${mode === "ally" ? "bg-blue-600 hover:bg-blue-500" : "bg-zinc-700 hover:bg-zinc-600"}`}
@@ -632,8 +785,6 @@ export default function App() {
               ))}
             </div>
           )}
-
-          <TrashBin />
         </aside>
       </div>
     </DndContext>
@@ -649,21 +800,43 @@ export default function App() {
       alert("同じメカは同一陣営に重複配置できません");
       return;
     }
-    const rect = mapRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const x = clamp(clientX - rect.left - UNIT_SIZE / 2, 0, rect.width - UNIT_SIZE);
-    const y = clamp(clientY - rect.top - UNIT_SIZE / 2, 0, rect.height - UNIT_SIZE);
+    const el = mapRef.current;
+    if (!el) return;
+
+    const rect = el.getBoundingClientRect();
+    const cs = window.getComputedStyle(el);
+    const padL = parseFloat(cs.paddingLeft)  || 0;
+    const padT = parseFloat(cs.paddingTop)   || 0;
+    const padR = parseFloat(cs.paddingRight) || 0;
+    const padB = parseFloat(cs.paddingBottom)|| 0;
+    const contentW = rect.width  - padL - padR;
+    const contentH = rect.height - padT - padB;
+
+    const pt = toContentCoordsFromClient(clientX, clientY);
+    if (!pt) return;
+
+    const x = clamp(pt.x - UNIT_SIZE / 2, 0, contentW - UNIT_SIZE);
+    const y = clamp(pt.y - UNIT_SIZE / 2, 0, contentH - UNIT_SIZE);
 
     setUnits((prev) => ({
       ...prev,
-      [side]: [...prev[side], { id: mech.id, src: mech.src, label: mech.label, side, x, y }],
+      [side]: [...prev[side], { id: mech.id, src: mech.src, label: mech.label, side, x, y, scale: 1 }],
     }));
   }
   function moveUnitTo(id, side, x, y) {
-    const rect = mapRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const nx = clamp(x, 0, rect.width - UNIT_SIZE);
-    const ny = clamp(y, 0, rect.height - UNIT_SIZE);
+    const el = mapRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cs = window.getComputedStyle(el);
+    const padL = parseFloat(cs.paddingLeft)  || 0;
+    const padT = parseFloat(cs.paddingTop)   || 0;
+    const padR = parseFloat(cs.paddingRight) || 0;
+    const padB = parseFloat(cs.paddingBottom)|| 0;
+    const contentW = rect.width  - padL - padR;
+    const contentH = rect.height - padT - padB;
+
+    const nx = clamp(x, 0, contentW - UNIT_SIZE);
+    const ny = clamp(y, 0, contentH - UNIT_SIZE);
     setUnits((prev) => ({
       ...prev,
       [side]: prev[side].map((u) => (u.id === id ? { ...u, x: nx, y: ny } : u)),
@@ -678,32 +851,85 @@ export default function App() {
 
   /* ------ オブジェクト：配置/移動/削除 ------ */
   function addObjectAt(item, clientX, clientY) {
-    const rect = mapRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const x = clamp(clientX - rect.left - OBJ_SIZE / 2, 0, rect.width - OBJ_SIZE);
-    const y = clamp(clientY - rect.top - OBJ_SIZE / 2, 0, rect.height - OBJ_SIZE);
+    const el = mapRef.current;
+    if (!el) return;
+
+    const rect = el.getBoundingClientRect();
+    const cs = window.getComputedStyle(el);
+    const padL = parseFloat(cs.paddingLeft)  || 0;
+    const padT = parseFloat(cs.paddingTop)   || 0;
+    const padR = parseFloat(cs.paddingRight) || 0;
+    const padB = parseFloat(cs.paddingBottom)|| 0;
+    const contentW = rect.width  - padL - padR;
+    const contentH = rect.height - padT - padB;
+
+    const pt = toContentCoordsFromClient(clientX, clientY);
+    if (!pt) return;
+
+    const x = clamp(pt.x - OBJ_SIZE / 2, 0, contentW - OBJ_SIZE);
+    const y = clamp(pt.y - OBJ_SIZE / 2, 0, contentH - OBJ_SIZE);
 
     // 同一IDの重複配置を許す（IDに連番を付けてユニーク化）
     const uid = `${item.id}_${Date.now()}_${Math.floor(Math.random()*1000)}`;
 
     setObjects((prev) => [
       ...prev,
-      { id: uid, kind: item.kind, src: item.src, label: item.label, x, y },
+      { id: uid, kind: item.kind, src: item.src, label: item.label, x, y, scale: 1 },
     ]);
   }
   function moveObjectTo(id, x, y) {
-    const rect = mapRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const nx = clamp(x, 0, rect.width - OBJ_SIZE);
-    const ny = clamp(y, 0, rect.height - OBJ_SIZE);
+    const el = mapRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cs = window.getComputedStyle(el);
+    const padL = parseFloat(cs.paddingLeft)  || 0;
+    const padT = parseFloat(cs.paddingTop)   || 0;
+    const padR = parseFloat(cs.paddingRight) || 0;
+    const padB = parseFloat(cs.paddingBottom)|| 0;
+    const contentW = rect.width  - padL - padR;
+    const contentH = rect.height - padT - padB;
+
+    const nx = clamp(x, 0, contentW - OBJ_SIZE);
+    const ny = clamp(y, 0, contentH - OBJ_SIZE);
     setObjects((prev) => prev.map((o) => (o.id === id ? { ...o, x: nx, y: ny } : o)));
   }
   function deleteObject(id) {
     setObjects((prev) => prev.filter((o) => o.id !== id));
   }
 
+  // 拡大縮小の更新関数（ユニット/オブジェクト個別）
+  function scaleUnit(id, side, delta) {
+    setUnits((prev) => ({
+      ...prev,
+      [side]: prev[side].map((u) =>
+        u.id === id
+          ? { ...u, scale: clamp((u.scale ?? 1) + delta, SCALE_MIN, SCALE_MAX) }
+          : u
+      ),
+    }));
+  }
+  function scaleObject(id, delta) {
+    setObjects((prev) =>
+      prev.map((o) =>
+        o.id === id
+          ? { ...o, scale: clamp((o.scale ?? 1) + delta, SCALE_MIN, SCALE_MAX) }
+          : o
+      )
+    );
+  }
+
+  // スライダー変更時、選択中のコーンにも反映
   function applySettingAndMaybeUpdateSelected(next) {
     setSettings((cur) => ({ ...cur, ...next }));
+    if (typeof next.visionSpread === "number" && selected?.kind === "cone") {
+      setCones((arr) => {
+        const i = selected.index;
+        if (i == null || arr[i] == null) return arr;
+        const nextArr = [...arr];
+        nextArr[i] = { ...nextArr[i], spread: next.visionSpread };
+        return nextArr;
+      });
+    }
   }
 }
 
@@ -733,19 +959,6 @@ function TabButton({ active, onClick, children }) {
   );
 }
 
-function CountBadge({ label, count, max, color = "blue" }) {
-  const base = "px-2 py-1 rounded-md text-[11px] font-semibold border backdrop-blur-sm";
-  const theme =
-    color === "blue"
-      ? count >= max
-        ? "bg-blue-500/20 border-blue-400/50 text-blue-200"
-        : "bg-blue-500/10 border-blue-400/30 text-blue-200"
-      : count >= max
-      ? "bg-red-500/20 border-red-400/50 text-red-200"
-      : "bg-red-500/10 border-red-400/30 text-red-200";
-  return <div className={`${base} ${theme}`}>{label}: {count}/{max}</div>;
-}
-
 function MapThumb({ map, active, onClick }) {
   return (
     <div className="mb-3">
@@ -761,17 +974,21 @@ function MapThumb({ map, active, onClick }) {
   );
 }
 
-const MapStage = React.forwardRef(function MapStage({ map, onContextMenu, children }, ref) {
+const MapStage = React.forwardRef(function MapStage(
+  { map, onWheel, onMouseDown, onMouseMove, onMouseUp, onContextMenu, view, children },
+  ref
+) {
   return (
     <main
       ref={ref}
+      onWheel={onWheel}
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
       onContextMenu={onContextMenu}
-      className="h-full w-full pt-12 relative"
+      className="h-full w-full pt-12 relative select-none"
       style={{
-        backgroundImage: `url(${map.full})`,
-        backgroundSize: "contain",
-        backgroundRepeat: "no-repeat",
-        backgroundPosition: "center",
+        backgroundColor: "#0f1317",
         minWidth: 420,
         minHeight: 420,
       }}
@@ -797,7 +1014,7 @@ function PaletteMech({ mech, disabled }) {
   });
   const style =
     transform && !disabled
-      ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+      ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, opacity: 0 }
       : undefined;
 
   return (
@@ -830,7 +1047,7 @@ function PaletteObj({ item, disabled }) {
   });
   const style =
     transform && !disabled
-      ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+      ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, opacity: 0 }
       : undefined;
 
   return (
@@ -855,7 +1072,7 @@ function PaletteObj({ item, disabled }) {
 }
 
 /* ---- マップ上：メカ（小型アイコン） ---- */
-function MapUnit({ unit, dndLocked }) {
+function MapUnit({ unit, dndLocked, onScale }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: `unit:${unit.side}:${unit.id}`,
     data: {
@@ -870,10 +1087,18 @@ function MapUnit({ unit, dndLocked }) {
     disabled: dndLocked,
   });
 
+  const translate =
+    transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : "translate3d(0,0,0)";
+  const scale = `scale(${unit.scale ?? 1})`;
+
   const style = {
     left: unit.x,
     top: unit.y,
-    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    transform: `${translate} ${scale}`,
+    transformOrigin: "center",
+    willChange: "transform",
+    touchAction: "none",
+    opacity: transform ? 0 : 1,
   };
 
   const sideTheme =
@@ -886,10 +1111,19 @@ function MapUnit({ unit, dndLocked }) {
       ref={setNodeRef}
       {...attributes}
       {...listeners}
+      tabIndex={-1}
       className={`absolute z-20 w-[56px] h-[56px] rounded-xl border-2 bg-black/30 backdrop-blur-[2px]
         grid place-items-center cursor-grab select-none ${sideTheme}`}
       style={style}
       title={`${unit.label} — ${unit.side === "ally" ? "味方" : "敵"}`}
+      onWheelCapture={(e) => {
+        // ✅ Shift＋ホイール でのみ拡大縮小（左押し＋ホイールは無効）
+        if (!e.shiftKey) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const delta = e.deltaY < 0 ? +SCALE_STEP : -SCALE_STEP;
+        onScale?.(delta);
+      }}
     >
       <img
         src={unit.src}
@@ -902,7 +1136,7 @@ function MapUnit({ unit, dndLocked }) {
 }
 
 /* ---- マップ上：オブジェクト（スキル/その他 共通） ---- */
-function MapObject({ obj }) {
+function MapObject({ obj, dndLocked, onScale }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: `obj:${obj.id}`,
     data: {
@@ -914,12 +1148,21 @@ function MapObject({ obj }) {
       label: obj.label,
       kind: obj.kind,
     },
+    disabled: dndLocked,
   });
+
+  const translate =
+    transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : "translate3d(0,0,0)";
+  const scale = `scale(${obj.scale ?? 1})`;
 
   const style = {
     left: obj.x,
     top: obj.y,
-    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    transform: `${translate} ${scale}`, // translate → scale
+    transformOrigin: "center",
+    willChange: "transform",
+    touchAction: "none",
+    opacity: transform ? 0 : 1,
   };
 
   const ring =
@@ -932,10 +1175,19 @@ function MapObject({ obj }) {
       ref={setNodeRef}
       {...attributes}
       {...listeners}
+      tabIndex={-1}
       className={`absolute z-20 w-[56px] h-[56px] rounded-xl border-2 bg-black/30 backdrop-blur-[2px]
         grid place-items-center cursor-grab select-none ${ring}`}
       style={style}
       title={`${obj.label} — ${obj.kind === "skill" ? "スキル" : "その他"}`}
+      onWheelCapture={(e) => {
+        // ✅ Shift＋ホイール でのみ拡大縮小（左押し＋ホイールは無効）
+        if (!e.shiftKey) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const delta = e.deltaY < 0 ? +SCALE_STEP : -SCALE_STEP;
+        onScale?.(delta);
+      }}
     >
       <img
         src={obj.src}
@@ -953,7 +1205,7 @@ function TrashBin() {
   return (
     <div
       ref={setNodeRef}
-      className={`mt-3 h-14 rounded-lg flex items-center justify-center border-2 border-dashed transition
+      className={`w-14 h-14 rounded-lg flex items-center justify-center border-2 border-dashed transition
         ${isOver ? "bg-red-600/75 border-red-200 text-white" : "bg-[#3a2a2a] border-white/20 text-white"}`}
       title="ここにドロップで削除（メカ/スキル/その他）"
     >
@@ -1123,6 +1375,8 @@ function eraseNearest(pt, { lines, setLines, cones, setCones, strokes, setStroke
   if (hit.kind === "cone")  setCones(arr => arr.filter((_,i)=>i!==hit.index));
   if (hit.kind === "stroke")setStrokes(arr => arr.filter((_,i)=>i!==hit.index));
 }
+
+// 距離（数値）を返す純関数
 function distanceToSegment(px, py, x1, y1, x2, y2) {
   const vx = x2 - x1, vy = y2 - y1;
   const wx = px - x1, wy = py - y1;

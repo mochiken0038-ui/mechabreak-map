@@ -1,2 +1,6 @@
 cd C:\Users\mochi\mech-map-tool
 npm run dev
+
+git add .
+git commit -m "画像を差し替え"
+git push
