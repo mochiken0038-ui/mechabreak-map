@@ -42,6 +42,8 @@ const MECHS = [
   { id: "mech13", src: "/img/mechs/mech13.png", label: "インフェルノ" },
   { id: "mech14", src: "/img/mechs/mech14.png", label: "飛景" },
   { id: "mech15", src: "/img/mechs/mech15.png", label: "セレニース" },
+  { id: "mech16", src: "/img/mechs/mech15.png", label: "アルファード" },
+  { id: "mech17", src: "/img/mechs/mech15.png", label: "ヘル" },
 ];
 
 // スキル（24種）
