@@ -72,6 +72,10 @@ const SKILLS = [
   { id: "skill22", src: "/img/skills/skill22.png", label: "[鳴神]ステルス付与" },
   { id: "skill23", src: "/img/skills/skill23.png", label: "[飛景]ソードビット" },
   { id: "skill24", src: "/img/skills/skill24.png", label: "[飛景]ワイヤー" },
+  { id: "skill25", src: "/img/skills/skill25.png", label: "[アルファ]爆導索" },
+  { id: "skill26", src: "/img/skills/skill26.png", label: "[ヘル]反射板" },
+  { id: "skill27", src: "/img/skills/skill27.png", label: "[ヘル]パルス機雷" },
+  { id: "skill28", src: "/img/skills/skill28.png", label: "[ヘル]擬態" },
 ];
 
 // その他（12種）
